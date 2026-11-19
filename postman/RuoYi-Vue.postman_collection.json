@@ -1,0 +1,1220 @@
+{
+  "info": {
+    "name": "RuoYi-Vue 核心接口测试",
+    "description": "RuoYi-Vue 后台管理系统核心接口测试集合，覆盖登录鉴权、用户管理、角色与组织、系统监控与鉴权异常五组场景，共 28 个接口。\n\n使用前置条件：\n1. 后端服务已启动（默认 http://localhost:8080）；\n2. 已导入同名环境文件，或手动确认 baseUrl / username / password 变量；\n3. 若参数设置中验证码为开启状态，需先执行「获取图形验证码」并人工填入 captchaCode，或把 sys.account.captchaEnabled 置为 false 后直接登录；\n4. 建议按文件夹顺序执行，登录文件夹的 token 会自动写入集合变量。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01 登录鉴权",
+      "description": "验证验证码、登录、会话信息与退出登录。登录成功后 token 自动写入集合变量，后续请求共用。",
+      "item": [
+        {
+          "name": "获取图形验证码",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/captchaImage",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "captchaImage"
+              ]
+            },
+            "description": "参数设置中验证码开启时，先取 uuid 与 base64 图片，人工识别后填入 captchaCode 变量。",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('返回 uuid', () => pm.expect(d.uuid).to.be.a('string').and.not.empty);",
+                  "if (d.uuid) { pm.environment.set('captchaUuid', d.uuid); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "登录（管理员）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            },
+            "description": "需先在参数设置里把 sys.account.captchaEnabled 置为 false，或手动填入验证码。登录成功后自动写入 token 变量。",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"code\": \"{{captchaCode}}\",\n  \"uuid\": \"{{captchaUuid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 状态码 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('业务码 200（注意：若依未认证时也是 HTTP 200，必须看 body.code）', () => pm.expect(body.code).to.eql(200));",
+                  "const tk = (typeof body.token === 'string' && body.token) || (body.data && body.data.token) || (body.data && body.data.access_token) || '';",
+                  "pm.test('响应中存在 token', () => pm.expect(tk.length).to.be.above(0));",
+                  "if (tk) {",
+                  "  pm.collectionVariables.set('token', tk);",
+                  "  try { pm.environment.set('token', tk); } catch (e) {}",
+                  "  console.log('[debug] token 已写入集合与环境，长度=' + tk.length);",
+                  "} else {",
+                  "  console.log('[debug] 未取到 token，响应字段=' + JSON.stringify(body).slice(0, 200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重复使用同一验证码登录（一次性校验）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"code\": \"{{captchaCode}}\",\n  \"uuid\": \"{{captchaUuid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "验证码一次性校验：先执行「登录（管理员）」并保证登录成功，随后立刻发送本请求（沿用同一 uuid 与验证码）。若系统校验严格，第二次应提示验证码错误或已失效。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('验证码应一次性失效，第二次登录被拒绝', () => pm.expect(d.code).to.not.eql(200));",
+                  "pm.test('提示验证码错误或已失效', () => pm.expect(d.msg || '').to.match(/验证码/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "登录（密码错误，期望失败）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            },
+            "description": "反向用例：密码错误时业务码非 200，且不返回 token。",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"wrong_password_123\",\n  \"code\": \"{{captchaCode}}\",\n  \"uuid\": \"{{captchaUuid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('业务码非 200（应被拦截）', () => pm.expect(d.code).to.not.eql(200));",
+                  "pm.test('未返回 token', () => pm.expect(d.token).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "获取当前登录用户信息",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/getInfo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "getInfo"
+              ]
+            },
+            "description": "校验 token 有效性与当前用户身份、角色、权限列表。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "const u = pm.response.json().user;",
+                  "pm.test('用户名为 admin', () => pm.expect(u.userName).to.eql('admin'));",
+                  "pm.test('返回角色列表', () => pm.expect(pm.response.json().roles).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "获取动态路由菜单",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/getRouters",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "getRouters"
+              ]
+            },
+            "description": "校验按角色下发的菜单树结构。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('返回菜单树', () => pm.expect(pm.response.json().data).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "退出登录",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logout"
+              ]
+            },
+            "description": "注意：执行后当前 token 失效，建议放在该文件夹最后执行。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 用户管理",
+      "description": "覆盖用户列表查询、新增、详情、唯一性校验、参数校验缺口验证、重置密码与删除。按顺序执行，userId 自动回写。",
+      "item": [
+        {
+          "name": "查询用户列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "分页查询用户列表，校验返回结构与总数。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('返回分页对象', () => { const d = pm.response.json(); pm.expect(d.rows).to.be.an('array'); pm.expect(d.total).to.be.a('number'); });",
+                  "pm.test('总数大于 0', () => pm.expect(pm.response.json().total).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增用户",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/system/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user"
+              ]
+            },
+            "description": "使用唯一用户名 apitest 系列，避免与已存在账号冲突。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{newUserName}}\",\n  \"nickName\": \"接口测试用户\",\n  \"deptId\": 100,\n  \"password\": \"Test@123456\",\n  \"phonenumber\": \"13800138000\",\n  \"email\": \"apitest@example.com\",\n  \"sex\": \"0\",\n  \"status\": \"0\",\n  \"postIds\": [\n    1\n  ],\n  \"roleIds\": [\n    2\n  ],\n  \"remark\": \"Postman 接口测试创建，执行完毕后请删除\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "按用户名查询刚新增的用户",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/list?pageNum=1&pageSize=10&userName={{newUserName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                },
+                {
+                  "key": "userName",
+                  "value": "{{newUserName}}"
+                }
+              ]
+            },
+            "description": "用于回写 userId，供后续详情、重置密码、删除使用。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('能查到新增用户', () => pm.expect(d.rows.length).to.be.above(0));",
+                  "if (d.rows && d.rows.length > 0) { pm.environment.set('userId', d.rows[0].userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询用户详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "{{userId}}"
+              ]
+            },
+            "description": "校验详情字段与新增时填写一致（部门、角色关联是否正确）。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('用户名与新增一致', () => pm.expect(d.data.userName).to.eql(pm.environment.get('newUserName')));",
+                  "pm.test('角色关联未丢失', () => pm.expect(d.roleIds).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增重复用户名（期望被拦截）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/system/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user"
+              ]
+            },
+            "description": "唯一性校验：同一登录账号重复新增应返回失败提示。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{newUserName}}\",\n  \"nickName\": \"重复账号测试\",\n  \"deptId\": 100,\n  \"password\": \"Test@123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('业务码非 200（应被拦截）', () => pm.expect(d.code).to.not.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增用户传非法手机号（校验缺口验证）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/system/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user"
+              ]
+            },
+            "description": "对应缺陷 BUG-003：前端有手机号正则校验，此处绕过前端直接调接口，验证后端是否补校验。若返回 200 说明后端仅校验长度、缺口成立。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{newUserName}}_phone\",\n  \"nickName\": \"非法手机号测试\",\n  \"deptId\": 100,\n  \"password\": \"Test@123456\",\n  \"phonenumber\": \"12345678901\",\n  \"status\": \"0\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('业务码非 200（应被拦截）', () => pm.expect(d.code).to.not.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重置用户密码",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/resetPwd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "resetPwd"
+              ]
+            },
+            "description": "校验密码重置接口，重置后原密码应失效。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"password\": \"Test@654321\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "删除用户",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "{{userId}}"
+              ]
+            },
+            "description": "清理测试数据。删除后可再次查询列表确认记录已消失。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 角色与组织",
+      "description": "覆盖角色、菜单、部门、岗位、字典五类基础数据的查询接口，验证鉴权后数据可见性。",
+      "item": [
+        {
+          "name": "查询角色列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/role/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "role",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('角色列表非空', () => pm.expect(pm.response.json().rows).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询菜单列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/menu/list?pageNum=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "menu",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "验证菜单配置数据的完整结构。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('返回菜单数据', () => pm.expect(pm.response.json().total).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询部门列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/dept/list",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "dept",
+                "list"
+              ]
+            },
+            "description": "验证部门树形结构数据。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('返回部门数组', () => pm.expect(pm.response.json().data).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询岗位列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/post/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "post",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询字典类型列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/dict/type/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "dict",
+                "type",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 系统监控",
+      "description": "覆盖在线用户、定时任务、调度日志与服务监控接口。",
+      "item": [
+        {
+          "name": "查询在线用户",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/online/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "monitor",
+                "online",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));",
+                  "pm.test('在线会话非空', () => pm.expect(pm.response.json().rows).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "强退在线用户",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/online/{{offlineToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "monitor",
+                "online",
+                "{{offlineToken}}"
+              ]
+            },
+            "description": "需先从「查询在线用户」中取一个 tokenId 填入 offlineToken 变量；执行头部 Authorization 会被该会话失效。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询定时任务列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/job/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "monitor",
+                "job",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询调度日志",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/jobLog/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "monitor",
+                "jobLog",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "服务监控",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/server",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "monitor",
+                "server"
+              ]
+            },
+            "description": "验证服务端资源信息接口可用。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 200', () => pm.expect(pm.response.json().code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 鉴权异常校验",
+      "description": "负向验证：无 token / 伪造 token / 无权限角色访问受限接口时，后端是否统一返回未授权。",
+      "item": [
+        {
+          "name": "未携带 token 访问用户列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "预期 HTTP 401，提示认证失败。",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "const d = pm.response.json();",
+                  "pm.test('返回未授权提示', () => pm.expect(d.msg).to.include('认证'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "伪造 token 访问用户列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/user/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "user",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "使用随机字符串冒充 token，预期被服务端拒绝。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "const d = pm.response.json();",
+                  "pm.test('返回未授权提示', () => pm.expect(d.msg).to.include('认证'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "未授权角色访问受限接口",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/system/role/list?pageNum=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "system",
+                "role",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "pageNum",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "使用仅有首页权限的 test01 账号的 token 调用角色列表（执行前先把 test01 的 token 填入 lowPrivToken 变量），预期返回无权限提示（业务码非 200）。",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lowPrivToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('业务码非 200（应被拦截）', () => pm.expect(d.code).to.not.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "username",
+      "value": "admin"
+    },
+    {
+      "key": "password",
+      "value": "admin123"
+    },
+    {
+      "key": "captchaCode",
+      "value": ""
+    },
+    {
+      "key": "captchaUuid",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "newUserName",
+      "value": "apitest01"
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "offlineToken",
+      "value": ""
+    },
+    {
+      "key": "lowPrivToken",
+      "value": ""
+    }
+  ]
+}
